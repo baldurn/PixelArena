@@ -12,3 +12,6 @@ udp-demo/firmware.json
 display-server/layout.json
 
 .DS_Store
+
+# Packages made by display-server/dist/package.sh
+display-server/dist/out/

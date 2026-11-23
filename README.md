@@ -14,6 +14,9 @@ simple WebSocket protocol.
     shows them in a loop.
   - `deploy.sh` builds for the Pi and installs; `deploy.sh kiosk` runs the
     simulator fullscreen with the demo loop from boot.
+  - **dist/**: the downloadable simulator for Linux, macOS and Windows,
+    built by `.github/workflows/release.yml` when a `v*` tag is pushed; see
+    the Releases page.
 - **udp-demo/**: firmware for the WT32-ETH01 LED controllers (Ethernet, four
   strips each, frames over UDP, over-the-air updates).
 - **blink/**, **ws2812/**: first experiments on the ESP32.
