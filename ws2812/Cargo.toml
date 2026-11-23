@@ -1,0 +1,22 @@
+[package]
+name = "ws2812"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93"
+resolver = "3"
+
+[dependencies]
+esp-hal = { version = "~1.0", features = ["esp32", "unstable"] }
+esp-hal-smartled = "0.17"
+esp-bootloader-esp-idf = { version = "0.4", features = ["esp32"] }
+esp-println = { version = "0.16", features = ["esp32"] }
+smart-leds = "0.4"
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"
+debug = 2
+lto = "fat"
+codegen-units = 1

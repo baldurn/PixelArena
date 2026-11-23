@@ -1,0 +1,14 @@
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
+CONFIG_FREERTOS_HZ=1000
+
+# WT32-ETH01 has 8 MB flash (Boya chip)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_SPI_FLASH_SUPPORT_BOYA_CHIP=y
+
+# Two OTA slots, see partitions.csv
+CONFIG_PARTITION_TABLE_CUSTOM=y
+# Resolved relative to target/<triple>/<profile>/build/esp-idf-sys-*/out
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../../../../../partitions.csv"
+
+# New images boot on probation and roll back unless marked valid
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

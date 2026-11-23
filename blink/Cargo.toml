@@ -1,0 +1,20 @@
+[package]
+name = "blink"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93"
+resolver = "3"
+
+[dependencies]
+esp-hal = { version = "1.0", features = ["esp32"] }
+esp-bootloader-esp-idf = { version = "0.5", features = ["esp32"] }
+esp-println = { version = "0.17", features = ["esp32"] }
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"
+debug = 2
+lto = "fat"
+codegen-units = 1

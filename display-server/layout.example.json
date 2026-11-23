@@ -1,0 +1,20 @@
+{
+  "width": 144,
+  "height": 8,
+  "fps": 40,
+  "brightness": 1.0,
+  "gamma": 1.0,
+  "broadcast": "192.168.50.255",
+  "physical": {"shape": "flat", "width_cm": 100, "height_cm": 5.6},
+  "segments": [
+    {"controller": "192.168.50.10", "strip": 0, "x": 0,   "y": 0, "direction": "right", "length": 144},
+    {"controller": "192.168.50.10", "strip": 1, "x": 143, "y": 1, "direction": "left",  "length": 144},
+    {"controller": "192.168.50.10", "strip": 2, "x": 0,   "y": 2, "direction": "right", "length": 144},
+    {"controller": "192.168.50.10", "strip": 3, "x": 143, "y": 3, "direction": "left",  "length": 144},
+    {"controller": "192.168.50.11", "strip": 0, "x": 0,   "y": 4, "direction": "right", "length": 144},
+    {"controller": "192.168.50.11", "strip": 1, "x": 0,   "y": 5, "direction": "right", "length": 144},
+    {"controller": "192.168.50.11", "strip": 2, "x": 0,   "y": 6, "direction": "right", "length": 72},
+    {"controller": "192.168.50.11", "strip": 2, "x": 72,  "y": 7, "direction": "right", "length": 72, "start": 72},
+    {"controller": "192.168.50.11", "strip": 3, "x": 72,  "y": 6, "direction": "right", "length": 72}
+  ]
+}

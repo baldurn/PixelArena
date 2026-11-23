@@ -1,0 +1,16 @@
+[Unit]
+Description=LED display server for games
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=om
+WorkingDirectory=/home/om/display-server
+ExecStart=/home/om/display-server/display-server --config /home/om/display-server/layout.json
+# pw-cat reaches the desktop session's PipeWire for sound
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
