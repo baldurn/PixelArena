@@ -2,7 +2,7 @@
 //! documents its own protocol at http://<host>:<port>/, so a game can be
 //! written by handing that URL to an AI.
 //!
-//!   display-server [--config layout.json] [--port 8080] [--audio auto|pipewire|aplay|none]
+//!   display-server [--config layout.json] [--port 8080] [--audio auto|native|pipewire|aplay|none]
 //!                  [--ddp-port 4048] [--ddp-size WxH]
 //!                  DDP input for WLED and xLights; port 0 turns it off
 //!   display-server --simulate CHAINS --width-cm W --height-cm H [--leds N]
@@ -32,8 +32,10 @@ use sim::Simulator;
 
 #[derive(Clone, Copy, ValueEnum)]
 enum AudioBackend {
-    /// pipewire if installed, else aplay, else none
+    /// macOS and Windows: native. Linux: pipewire if installed, else aplay, else none
     Auto,
+    /// the system's own sound output (macOS and Windows)
+    Native,
     /// play with pw-cat
     Pipewire,
     /// play directly through ALSA; fails while PipeWire holds the device
@@ -120,6 +122,16 @@ fn parse_size(s: &str) -> Result<(usize, usize), String> {
         (Ok(w), Ok(h)) if w > 0 && h > 0 => Ok((w, h)),
         _ => Err("width and height must be positive whole numbers".into()),
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn native_audio() -> Result<Arc<audio::Audio>, String> {
+    audio::Audio::start_native()
+}
+
+#[cfg(target_os = "linux")]
+fn native_audio() -> Result<Arc<audio::Audio>, String> {
+    Err("--audio native is for macOS and Windows; on Linux use pipewire or aplay".into())
 }
 
 fn which(program: &str) -> bool {
@@ -209,7 +221,9 @@ fn main() {
     }
     .unwrap_or_else(|e| fail(e));
 
+    let auto = matches!(a.audio, AudioBackend::Auto);
     let backend = match a.audio {
+        AudioBackend::Auto if !cfg!(target_os = "linux") => AudioBackend::Native,
         AudioBackend::Auto if which("pw-cat") => AudioBackend::Pipewire,
         AudioBackend::Auto if which("aplay") => AudioBackend::Aplay,
         AudioBackend::Auto => AudioBackend::None,
@@ -236,9 +250,21 @@ fn main() {
         }
         _ => None,
     };
-    let audio = command.map(|cmd| {
-        audio::Audio::start(&cmd).unwrap_or_else(|e| fail(format!("starting {}: {e}", cmd[0])))
-    });
+    let audio = match (command, backend) {
+        (Some(cmd), _) => {
+            Some(audio::Audio::start(&cmd).unwrap_or_else(|e| fail(format!("starting {}: {e}", cmd[0]))))
+        }
+        (None, AudioBackend::Native) => match native_audio() {
+            Ok(audio) => Some(audio),
+            // No sound device is no reason not to show the display
+            Err(e) if auto => {
+                eprintln!("display-server: no sound: {e}");
+                None
+            }
+            Err(e) => fail(format!("sound output: {e}")),
+        },
+        _ => None,
+    };
 
     let physical = match &simulator {
         Some(sim) => Some(server::Physical {

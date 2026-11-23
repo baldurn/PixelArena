@@ -16,5 +16,9 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 winit = "0.30"
 
+# Sound on macOS and Windows; Linux pipes to pw-cat or aplay (see audio.rs)
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+cpal = "0.16"
+
 [profile.release]
 strip = true

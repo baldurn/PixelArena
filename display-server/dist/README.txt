@@ -28,8 +28,8 @@ WLED and xLights can drive the simulator too: send DDP to this computer's
 address (shown in the window).
 
 Notes
-   - Sound plays on Linux with PipeWire (pw-cat) or ALSA (aplay); on macOS
-     and Windows the simulator is silent for now.
+   - Sound plays through the computer's default sound output. On Linux it
+     needs PipeWire (pw-cat) or ALSA (aplay); --audio none turns it off.
    - Windows may ask whether display-server may use the network: allow it
      for the private network so games and WLED can connect.
    - macOS blocks downloaded programs that are not signed. Either

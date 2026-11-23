@@ -1,5 +1,9 @@
-//! Clips and tones mixed into one mono stream, piped to an output command
-//! (pw-cat or aplay).
+//! Clips and tones mixed into one mono stream. Two ways out:
+//!
+//! - Linux: piped to an output command (pw-cat or aplay), see `start`.
+//! - macOS and Windows: the system's own sound output through cpal, see
+//!   `start_native`. The sound card's rate is usually not SAMPLE_RATE, so the
+//!   mixer steps through the clips at the ratio between the two.
 //!
 //! The mixer keeps only a little sound queued in the pipe (QUEUE_TARGET), so a
 //! new sound is heard almost at once: it waits while the pipe holds more. Left
@@ -43,12 +47,13 @@ pub struct Voice {
     samples: Arc<Vec<i16>>,
     volume: f32,
     looped: bool,
-    pos: usize,
+    /// In samples of `samples`; fractional when the output rate differs
+    pos: f64,
 }
 
 impl Voice {
     pub fn new(owner: u64, name: Option<String>, samples: Arc<Vec<i16>>, volume: f32, looped: bool) -> Self {
-        Self { owner, name, samples, volume, looped, pos: 0 }
+        Self { owner, name, samples, volume, looped, pos: 0.0 }
     }
 }
 
@@ -86,25 +91,7 @@ impl Audio {
                         continue;
                     }
                 }
-                mix.fill(0.0);
-                mixer.voices.lock().unwrap().retain_mut(|v| {
-                    let mut n = 0;
-                    while n < CHUNK {
-                        let take = (CHUNK - n).min(v.samples.len() - v.pos);
-                        for (m, &s) in mix[n..n + take].iter_mut().zip(&v.samples[v.pos..v.pos + take]) {
-                            *m += s as f32 * v.volume;
-                        }
-                        n += take;
-                        v.pos += take;
-                        if v.pos >= v.samples.len() {
-                            if !v.looped || v.samples.is_empty() {
-                                return false;
-                            }
-                            v.pos = 0;
-                        }
-                    }
-                    true
-                });
+                mixer.mix(&mut mix, 1.0);
                 made += CHUNK;
                 out.clear();
                 for &m in &mix {
@@ -118,6 +105,104 @@ impl Audio {
                 }
             }
         });
+        Ok(audio)
+    }
+
+    /// Mixes the playing voices into `out` (i16 range), stepping `step`
+    /// clip samples per output sample: 1.0 at SAMPLE_RATE
+    fn mix(&self, out: &mut [f32], step: f64) {
+        out.fill(0.0);
+        self.voices.lock().unwrap().retain_mut(|v| {
+            let n = v.samples.len();
+            if n == 0 {
+                return false;
+            }
+            for o in out.iter_mut() {
+                if v.pos >= n as f64 {
+                    if !v.looped {
+                        return false;
+                    }
+                    v.pos -= n as f64;
+                }
+                // Linear between neighbouring samples, so other rates sound clean
+                let i = v.pos as usize;
+                let next = match (i + 1 < n, v.looped) {
+                    (true, _) => v.samples[i + 1],
+                    (false, true) => v.samples[0],
+                    (false, false) => 0,
+                } as f32;
+                let f = (v.pos - i as f64) as f32;
+                *o += (v.samples[i] as f32 * (1.0 - f) + next * f) * v.volume;
+                v.pos += step;
+            }
+            v.looped || v.pos < n as f64
+        });
+    }
+
+    /// Plays through the system's default sound output (WASAPI on Windows,
+    /// CoreAudio on macOS)
+    #[cfg(not(target_os = "linux"))]
+    pub fn start_native() -> Result<Arc<Self>, String> {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+        fn stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
+            device: &cpal::Device,
+            config: &cpal::StreamConfig,
+            audio: Arc<Audio>,
+        ) -> Result<cpal::Stream, cpal::BuildStreamError> {
+            let channels = config.channels as usize;
+            let step = SAMPLE_RATE as f64 / config.sample_rate.0 as f64;
+            let mut mono = Vec::new();
+            device.build_output_stream(
+                config,
+                move |data: &mut [T], _| {
+                    mono.resize(data.len() / channels, 0.0);
+                    audio.mix(&mut mono, step);
+                    for (frame, &m) in data.chunks_mut(channels).zip(&mono) {
+                        frame.fill(T::from_sample((m / 32768.0).clamp(-1.0, 1.0)));
+                    }
+                },
+                |e| eprintln!("audio output: {e}"),
+                None,
+            )
+        }
+
+        let audio = Arc::new(Self { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true) });
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mixer = audio.clone();
+        // The stream must stay in the thread that made it on some systems, so
+        // that thread keeps it, and the sound, alive for good
+        std::thread::spawn(move || {
+            let started = (|| -> Result<cpal::Stream, String> {
+                let device = cpal::default_host().default_output_device().ok_or("no sound output device")?;
+                let supported = device.default_output_config().map_err(|e| e.to_string())?;
+                let format = supported.sample_format();
+                let config: cpal::StreamConfig = supported.into();
+                let s = match format {
+                    cpal::SampleFormat::F32 => stream::<f32>(&device, &config, mixer),
+                    cpal::SampleFormat::I16 => stream::<i16>(&device, &config, mixer),
+                    cpal::SampleFormat::U16 => stream::<u16>(&device, &config, mixer),
+                    cpal::SampleFormat::I32 => stream::<i32>(&device, &config, mixer),
+                    f => return Err(format!("sample format {f} is not supported")),
+                }
+                .map_err(|e| e.to_string())?;
+                s.play().map_err(|e| e.to_string())?;
+                Ok(s)
+            })();
+            match started {
+                Ok(s) => {
+                    let _ = ready_tx.send(Ok(()));
+                    let _keep = s;
+                    loop {
+                        std::thread::park();
+                    }
+                }
+                Err(e) => {
+                    let _ = ready_tx.send(Err(e));
+                }
+            }
+        });
+        ready_rx.recv().map_err(|e| e.to_string())??;
         Ok(audio)
     }
 
@@ -195,4 +280,48 @@ pub fn make_tone(wave: &str, freq: f64, ms: f64, to_freq: Option<f64>, seed: u64
             (v * ramp * 16000.0) as i16
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn audio_with(samples: Vec<i16>, looped: bool) -> Audio {
+        let audio = Audio { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true) };
+        audio.play(Voice::new(1, None, Arc::new(samples), 1.0, looped));
+        audio
+    }
+
+    #[test]
+    fn mixes_at_native_rate() {
+        let audio = audio_with(vec![100, 200, 300], false);
+        let mut out = [0f32; 5];
+        audio.mix(&mut out, 1.0);
+        assert_eq!(out, [100.0, 200.0, 300.0, 0.0, 0.0]);
+        assert!(audio.voices.lock().unwrap().is_empty(), "a finished clip is dropped");
+    }
+
+    #[test]
+    fn resamples_to_other_rates() {
+        // A 100 ms tone played at 48 kHz lasts 100 ms: 4800 output samples
+        let tone = make_tone("sine", 440.0, 100.0, None, 1);
+        let audio = audio_with(tone.clone(), false);
+        let step = SAMPLE_RATE as f64 / 48000.0;
+        let mut out = vec![0f32; 6000];
+        audio.mix(&mut out, step);
+        let last = out.iter().rposition(|&s| s != 0.0).unwrap();
+        assert!((4795..=4800).contains(&last), "tone ends at output sample {last}");
+        // Smooth: between two output samples the wave moves no more than it does in the clip
+        let max_clip = tone.windows(2).map(|w| (w[1] as f32 - w[0] as f32).abs()).fold(0.0, f32::max);
+        let max_out = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(max_out <= max_clip, "{max_out} > {max_clip}");
+    }
+
+    #[test]
+    fn loops_without_a_gap() {
+        let audio = audio_with(vec![1000, 2000], true);
+        let mut out = [0f32; 6];
+        audio.mix(&mut out, 1.0);
+        assert_eq!(out, [1000.0, 2000.0, 1000.0, 2000.0, 1000.0, 2000.0]);
+    }
 }
