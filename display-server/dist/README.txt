@@ -2,7 +2,7 @@ PixelArena simulator
 ====================
 
 The PixelArena LED display in a window on your own computer: 60 pipes of
-144 LEDs standing in a 6 m circle. Games and demos connect to it exactly as
+144 LEDs standing in a circle 3 m across. Games and demos connect to it exactly as
 they do to the real display, so you can write and try a game here first.
 
 1. Start the simulator
