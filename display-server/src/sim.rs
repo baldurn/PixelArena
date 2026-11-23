@@ -58,6 +58,10 @@ pub struct Simulator {
     pub failed: Arc<AtomicBool>,
     /// Called with (player 1 or 2, button, pressed) for the players' keys
     pub on_input: Option<InputHandler>,
+    /// Sets whether sound is muted; None if there is no sound
+    pub on_mute: Option<Box<dyn Fn(bool)>>,
+    /// Start muted; M in the window switches
+    pub muted: bool,
 }
 
 pub type InputHandler = Box<dyn Fn(u8, &'static str, bool)>;
@@ -235,6 +239,7 @@ impl Simulator {
             profile: std::env::var_os("SIM_PROFILE").map(|_| Profile::default()),
             info: Vec::new(),
             show_info: true,
+            muted: self.muted,
             info_checked: None,
         };
         event_loop.run_app(&mut app).map_err(|e| format!("window: {e}"))?;
@@ -282,6 +287,7 @@ struct App<'a> {
     /// Connection instructions shown in the corner; I switches
     info: Vec<String>,
     show_info: bool,
+    muted: bool,
     info_checked: Option<Instant>,
 }
 
@@ -347,9 +353,12 @@ impl App<'_> {
             }
             None => buffer.fill(0),
         }
-        if self.show_info {
-            overlay::draw(&mut buffer, w, h, &self.info);
+        // The sound state shows even with the address hidden
+        let mut lines = if self.show_info { self.info.clone() } else { Vec::new() };
+        if self.muted {
+            lines.push("Sound off (M to turn on)".into());
         }
+        overlay::draw(&mut buffer, w, h, &lines);
         let rendered = Instant::now();
         buffer.present().map_err(|e| format!("showing the window: {e}"))?;
         self.shown = frame;
@@ -386,7 +395,7 @@ impl ApplicationHandler for App<'_> {
             ((sim.width_cm * ppc).round(), (sim.height_cm * ppc).round())
         };
         let title = format!(
-            "LED display: {} chains x {} LEDs, {} x {} cm  |  V: flat/3D view, F: fullscreen, I: address, \
+            "LED display: {} chains x {} LEDs, {} x {} cm  |  V: flat/3D view, F: fullscreen, M: sound, I: address, \
              players: arrows+Enter and WASD+Space, 3D: drag to orbit, scroll to zoom, R: spin",
             sim.chains, sim.leds, sim.width_cm, sim.height_cm
         );
@@ -450,6 +459,13 @@ impl ApplicationHandler for App<'_> {
                     }
                     KeyCode::KeyR if self.view3d => self.camera.spinning = !self.camera.spinning,
                     KeyCode::KeyF => self.toggle_fullscreen(None),
+                    KeyCode::KeyM if self.sim.on_mute.is_some() => {
+                        self.muted = !self.muted;
+                        if let Some(on_mute) = &self.sim.on_mute {
+                            on_mute(self.muted);
+                        }
+                        self.redraw = true;
+                    }
                     KeyCode::KeyI => {
                         self.show_info = !self.show_info;
                         self.redraw = true;
@@ -522,7 +538,7 @@ mod tests {
     fn glow() {
         let sim = Simulator {
             chains: 12, leds: 144, width_cm: 240.0, height_cm: 100.0, led_scale: 4.0, pipe_cm: None,
-            cylinder: false, view3d: false, fullscreen: false, port: 8080, ddp_port: None, fps: 40.0, on_input: None,
+            cylinder: false, view3d: false, fullscreen: false, port: 8080, ddp_port: None, fps: 40.0, on_input: None, on_mute: None, muted: false,
             frame: Arc::new(Mutex::new(None)), failed: Arc::new(AtomicBool::new(false)),
         };
         let fit = sim.fit(1200, 500);

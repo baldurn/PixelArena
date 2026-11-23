@@ -22,6 +22,7 @@ In the simulator window
    Player 1: arrows to move, Enter to fire
    Player 2: W A S D to move, Space to fire
    F: fullscreen, Esc: leave fullscreen, V: flat / 3D view
+   M: sound off / on (or start with --mute)
    I: hide the address text, drag: orbit (3D), scroll: zoom, R: spin
 
 WLED and xLights can drive the simulator too: send DDP to this computer's

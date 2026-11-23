@@ -61,6 +61,8 @@ pub struct Audio {
     voices: Mutex<Vec<Voice>>,
     /// False once the output command has exited
     alive: AtomicBool,
+    /// Silent output; sounds still run their course, so none resume late
+    muted: AtomicBool,
 }
 
 impl Audio {
@@ -70,7 +72,7 @@ impl Audio {
             .stdin(Stdio::piped())
             .spawn()?;
         let mut stdin = child.stdin.take().expect("piped stdin");
-        let audio = Arc::new(Self { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true) });
+        let audio = Arc::new(Self { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true), muted: AtomicBool::new(false) });
         let mixer = audio.clone();
         std::thread::spawn(move || {
             let mut mix = [0f32; CHUNK];
@@ -137,6 +139,17 @@ impl Audio {
             }
             v.looped || v.pos < n as f64
         });
+        if self.muted() {
+            out.fill(0.0);
+        }
+    }
+
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::Relaxed);
     }
 
     /// Plays through the system's default sound output (WASAPI on Windows,
@@ -167,7 +180,7 @@ impl Audio {
             )
         }
 
-        let audio = Arc::new(Self { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true) });
+        let audio = Arc::new(Self { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true), muted: AtomicBool::new(false) });
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let mixer = audio.clone();
         // The stream must stay in the thread that made it on some systems, so
@@ -287,7 +300,7 @@ mod tests {
     use super::*;
 
     fn audio_with(samples: Vec<i16>, looped: bool) -> Audio {
-        let audio = Audio { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true) };
+        let audio = Audio { voices: Mutex::new(Vec::new()), alive: AtomicBool::new(true), muted: AtomicBool::new(false) };
         audio.play(Voice::new(1, None, Arc::new(samples), 1.0, looped));
         audio
     }
@@ -315,6 +328,18 @@ mod tests {
         let max_clip = tone.windows(2).map(|w| (w[1] as f32 - w[0] as f32).abs()).fold(0.0, f32::max);
         let max_out = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         assert!(max_out <= max_clip, "{max_out} > {max_clip}");
+    }
+
+    #[test]
+    fn mute_silences_but_sounds_run_on() {
+        let audio = audio_with(vec![100, 200, 300, 400], false);
+        audio.set_muted(true);
+        let mut out = [1f32; 2];
+        audio.mix(&mut out, 1.0);
+        assert_eq!(out, [0.0, 0.0]);
+        audio.set_muted(false);
+        audio.mix(&mut out, 1.0);
+        assert_eq!(out, [300.0, 400.0], "carries on where it got to, not from the start");
     }
 
     #[test]

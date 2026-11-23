@@ -101,6 +101,9 @@ struct Args {
     /// Start the window fullscreen; F in the window switches, Esc leaves
     #[arg(long, help_heading = "Simulation")]
     fullscreen: bool,
+    /// Start with the sound off; M in the simulator window switches
+    #[arg(long)]
+    mute: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -193,6 +196,8 @@ fn main() {
             cylinder: a.cylinder,
             view3d: a.view == View::ThreeD,
             fullscreen: a.fullscreen,
+            muted: a.mute,
+            on_mute: None,
             port: a.port,
             ddp_port: (a.ddp_port != 0).then_some(a.ddp_port),
             fps,
@@ -265,6 +270,9 @@ fn main() {
         },
         _ => None,
     };
+    if let (Some(audio), true) = (&audio, a.mute) {
+        audio.set_muted(true);
+    }
 
     let physical = match &simulator {
         Some(sim) => Some(server::Physical {
@@ -298,6 +306,15 @@ fn main() {
     // Players' keys in the window go to the connected game
     let input_server = server.clone();
     sim.on_input = Some(Box::new(move |player, button, pressed| input_server.input(player, button, pressed)));
+    if let Some(audio) = server.audio.clone() {
+        sim.on_mute = Some(Box::new(move |muted| {
+            audio.set_muted(muted);
+            println!("sound {}", if muted { "off" } else { "on" });
+        }));
+    } else {
+        // Nothing to mute: do not claim the sound is off
+        sim.muted = false;
+    }
 
     // The window must own the main thread; closing it ends the program
     let failed = sim.failed.clone();

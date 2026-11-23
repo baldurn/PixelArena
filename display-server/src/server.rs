@@ -255,7 +255,8 @@ impl Server {
     }
 
     fn audio_info(&self) -> Value {
-        json!({"enabled": self.audio_enabled(), "sample_rate": SAMPLE_RATE,
+        json!({"enabled": self.audio_enabled(), "muted": self.audio.as_ref().is_some_and(|a| a.muted()),
+               "sample_rate": SAMPLE_RATE,
                "max_clip_seconds": MAX_CLIP_SECONDS, "waves": WAVES})
     }
 
